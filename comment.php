@@ -1,76 +1,81 @@
 <?php
 
-$filename = 'comment.txt';
-$messagefile = 'message.txt';
+  $id = $_GET['id'];
 
-$comment_data = null;
-$fp = null;
-$message = array();
-$message_array = array();
-$error_message = array();
+function dbConnect() {
+  $dsn = 'mysql:host=localhost;dbname=laravel_news;charset=utf8';
+  $user = 'root';
+  $pass = 'root';
 
+  try {
+    $dbh = new PDO($dsn,$user,$pass,[
+    PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, //エラーモードを例外で出力する
+    PDO::ATTR_EMULATE_PREPARES => false,
+    ]);
+    } catch(PDOException $e) {
+      echo '接続失敗'. $e->getMessage();
+      exit();
+  };
+  return $dbh;
+}
+
+    $dbh = dbConnect();
+    $stmt = $dbh->prepare('SELECT * FROM articles Where id = :id');
+    $stmt->bindValue(':id', (int)$id, PDO::PARAM_INT);
+    $stmt->execute();
+    $result = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    $sql = 'SELECT * FROM comments'; //データベースの'articles'から全部読み取って変数へ代入
+    $comment = $dbh->query($sql); //接続したら読み取ったデータに問い合わせて$commentに代入
+    $comments = $comment->fetchall(PDO::FETCH_ASSOC); //問い合わせたら全部のデータを$resultに代入
+    $dbh = null; //$dbhを初期化
+
+
+
+
+    $error_message = array(); //$error_messageを配列にしとく
+
+//$_POSTで['btn_submit']が送られてきて、空白じゃない時
 if (!empty($_POST['btn-submit']) ) {
-  
-  if ($fp = fopen($filename, "a") ) {
-
-    //$_POST['comment']が空の時 
-    if( empty($_POST['comment']) ) {
-      $error_message[] = 'コメントは必須です。';
-    }
-
-    // $error_messageが空の時
-    if( empty($error_message) ) {
-
-      $comment_data = $_POST['comment'].",".$_GET['num']."\n";
-
-      fwrite($fp, $comment_data);
-
-      fclose($fp);
-
-    }
+   
+  if (empty($_POST['comment'])) { //
+    $error_message[] = 'コメントは必須です';
+  } else if(mb_strlen($_POST['comment']) > 50) { 
+    $error_message[] = 'コメントは50文字以下でお願いします。';
   }
-}
 
 
 
-if ($fp = fopen($filename, 'r')) {
-
-  $public_array = array();
-  
-  while ($comment_data = fgets($fp)) { //$comment_dataに１行ずつ$fpのデータを代入
-
-    $split_data = explode( ',',$comment_data); //$split_dataにexplodeで$comment_dataの中の文字列を「,」で分割して代入
-    // var_dump($split_data);
-
-    // $messageに配列を代入
-    $message = array( 
-      'comment' => $split_data[0], //$comment_data[0]を$comment_data['comment']にする
-      'num' => $split_data[1]
-    );
+  if(empty($error_message)) { //エラーメッセージが空の時
+    $dbh = dbConnect();
+    $sql = 'INSERT INTO comments (comment,article_id) VALUES (:comment,:article_id)';
     
-
-    array_unshift($message_array, $message); //$message_arrayに$messageを先頭から順に配置する
-    array_push($public_array, $message);
-  }
-
-  fclose($fp);  //ファイルを閉じる
-}
-
-if ($file_handle = fopen($messagefile, 'r')) {
-  while ($data = fgets($file_handle)) { //$dataに１行ずつ$file_handleのデータを代入
-
-    $message_data = explode( ',',$data); //$split_dataにexplodeで$dataの中の文字列を「,」で分割して代入
-
-    // $messageに配列を代入
-    $message_ary = array( 
-      'title' => $message_data[0], //$split_data[0]を$split_data['title']にする
-      'text' => $message_data[1],  //$split_data[1]を$split_data['text']にする
-      'num' => $message_data[2]
-    );
-
-    fclose($messagefile);  //ファイルを閉じる
+    try {
+      $comments_stmt = $dbh->prepare($sql);
+      $comment_data = array(':comment' => $_POST['comment'],'article_id' => $id);
+      $comments_stmt->execute($comment_data);
+    } catch(PDOException $e) {
+      exit($e);
     }
+    header ('Location:  ' . $_SERVER['REQUEST_URI']); //二重投稿防止
+    exit;
   }
+} elseif (isset($_POST['delete_send'])) {
+    $delete = $_POST['delete'];
+    $dbh = dbConnect();
+    $sql = 'DELETE FROM comments WHERE id = :id';
+    
+  try {
+    $comments_stmt = $dbh->prepare($sql);
+    $delete_comment = array(':id' => $delete );
+    $comments_stmt->execute($delete_comment);
+  } catch (PDOException $e){
+    exit($e);
+  }
+    
+    header ('Location:  ' . $_SERVER['REQUEST_URI']); //二重投稿防止
+    exit;
+}
 ?>
 
 
@@ -91,8 +96,8 @@ if ($file_handle = fopen($messagefile, 'r')) {
   </header>
 <section id = comment>
   <div class="comment-in">
-    <h3><?php echo $_GET['title']; ?></h3>
-    <p><?php echo $_GET['text']; ?></p>
+    <h3><?php echo $result['title']; ?></h3>
+    <p><?php echo $result['text']; ?></p>
   </div>
 </section>
 <?php if( !empty($error_message) ): ?>  <!--$error_messageの中が空じゃ無い時 -->
@@ -109,19 +114,17 @@ if ($file_handle = fopen($messagefile, 'r')) {
       <input class="btn-submit" type="submit"  name="btn-submit" value="コメントを書く">
     </div>
   </form>
-
-    <?php foreach($public_array as $value):
-          $num  = trim($value['num'], "\n");
-      ?>   <!--$message_arrayから$valueに[]を配置していく -->
-      <?php if($num == $_GET['num']) :?> <!--$message_arrayが空じゃ無い時 -->
+    <?php foreach($comments as $column):?> <!-- $value['num']の空白（"\n"）を削除して$numに代入 -->
+  <?php if ($column['article_id'] == $id): ?>
   <form action="" method="POST" class="other_comment">
     <div class="text-form">
-      <div class="textarea" name="comment"><?php echo $value['comment'];?></div>
-      <input class="btn-submit" type="submit"  name="delete" value="コメントを消す">
+      <div class="textarea" name="comment"><?php echo $column['comment'];?></div><!-- $value['comment']を表示 -->
+      <input type="hidden"  name="delete" value="<?php echo $column['id'] ?>">
+      <input class="btn-submit" type="submit" name="delete_send" value="コメントを消す">
     </div>
   </form>
     <?php endif ?>
-  <?php endforeach; ?>
+    <?php endforeach; ?>
 
 </section>
 </body>
