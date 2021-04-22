@@ -1,72 +1,67 @@
 <?php
-// メッセージを保存するファイルのパス設定
-define( 'FILENAME', 'message.txt');
 
-$data = null;
-$file_handle = null;
-$split_data = null;
-$message = array();
-$message_array = array();
-$error_message = array();
+//データベースへ接続
+function dbConnect() {
+    $dsn = 'mysql:host=localhost;dbname=laravel_news;charset=utf8';
+    $user = 'root';
+    $pass = 'root';
 
-// $_POST['send_news']が空じゃない時
-if(!empty($_POST['send_news']) ) {
+  try {
+    $dbh = new PDO($dsn,$user,$pass,[
+      PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, //エラーモードを例外で出力する
+      ]);
+  } catch(PDOException $e) {
+    echo '接続失敗'. $e->getMessage();
+    exit();
+  };
 
-  // FILENAMEを追記で書き込むために開く時$file_handleへ代入
-	if( $file_handle = fopen( FILENAME, "a") ) {  
+  return $dbh;
 
-    //$_POST['title']が空の時 
-    if( empty($_POST['title']) ) {
-      $error_message[] = 'タイトルは必須です。';
-    }
+}
 
-    // $_POST['text']が空の時
-    if( empty($_POST['text']) ) {
-      $error_message[] = '記事は必須です。';
-    }
+//データベースから取得
+    $dbh = dbConnect(); //$dbhにデータベース接続する関数を入れる
+    $sql = 'SELECT * FROM articles'; //データベースの'articles'から全部読み取って変数へ代入
+    $stmt = $dbh->query($sql); //接続したら読み取ったデータに問い合わせて$stmtに代入
+    $result = $stmt->fetchall(PDO::FETCH_ASSOC); //問い合わせたら全部のデータを$resultに代入
+    // var_dump($result);
+    $dbh = null; //$dbhを初期化
 
-    // $error_messageが空の時
-    if( empty($error_message) ) {
+//取得したデータを表示
+$error_message = array(); //$error_messageを配列にしとく
 
-      // FILENAMEが存在する時
-      if (file_exists(FILENAME)) {
-        $num = count(file(FILENAME))+1; //FILENAMEのファイルを読み込み、配列数を取得+1したのを$numに代入
-    } else { 
-        $num = 1; //存在しない時は$num=1
-    }
+if (!empty($_POST['send_news'])) { //投稿を押された時
+
+  if (empty($_POST['title'])) { //
+    $error_message[] = 'タイトルは必須です';
+  } else if(mb_strlen($_POST['title']) > 30) { 
+    $error_message[] = 'タイトルは30文字以下でお願いします。';
+  }
+   if (empty($_POST['text'])) {
+    $error_message[] = '記事は必須です';
+  }
+
+  if(empty($error_message)) { //エラーメッセージが空の時
+    $dbh = dbConnect();
+    $sql = 'INSERT INTO articles (title, text) VALUES (:title, :text)';
     
-      // $dataに書き込むデータを作成
-      $data = $_POST['title'].",".$_POST['text'].",".$num."\n";
-      
-      // $file_handleに$dataを書き込み (file_handle = fopen( FILENAME, "a"))
-      fwrite( $file_handle, $data);
-      
-      // ファイルを閉じる
-      fclose( $file_handle);
-    }	
+    try {
+      $stmt = $dbh->prepare($sql);
+      $stmt->bindValue(':title',$_POST['title'],PDO::PARAM_STR);
+      $stmt->bindValue(':text',$_POST['text'],PDO::PARAM_STR);
+      $stmt->execute();
+    } catch(PDOException $e) {
+      exit($e);
+    }
+    header ('Location:  ' . $_SERVER['SCRIPT_NAME']); //二重投稿防止
+    exit;
   }
-}
+} 
 
-  // FILENAMEから読み取るために開く時$file_handleへ代入
-if ($file_handle = fopen(FILENAME, 'r')) {
-  while ($data = fgets($file_handle)) { //$dataに１行ずつ$file_handleのデータを代入
-
-    $split_data = explode(',',$data); //$split_dataにexplodeで$dataの中の文字列を「,」で分割して代入
-
-    // $messageに配列を代入
-    $message = array( 
-      'title' => $split_data[0], //$split_data[0]を$split_data['title']にする
-      'text' => $split_data[1],  //$split_data[1]を$split_data['text']にする
-      'num' => $split_data[2]
-    );
-    array_unshift($message_array, $message); //$message_arrayに$messageを先頭から順に配置する
-  }
+// var_dump($error_message);
 
 
-  fclose($file_handle);  //ファイルを閉じる
-}
 ?>  
-
 
 
 <!DOCTYPE html>
@@ -90,10 +85,10 @@ if ($file_handle = fopen(FILENAME, 'r')) {
 
     <h2>さぁ、最新のニュースをシェアしましょう</h2>
     
-    <?php if( !empty($error_message) ): ?>  <!--$error_messageの中が空じゃ無い時 -->
+    <?php if(!empty($error_message) ): ?>  <!--$error_messageの中が空じゃ無い時 -->
       <ul>
-        <?php foreach( $error_message as $value ): ?>  <!--$error_messageから$valueに[]を配置していく -->
-          <li><?php echo $value; ?></li>  <!--$valueに入った$error_message[0]と[1]を順に表示 -->
+        <?php foreach( $error_message as $value ): ?>  <!--$error_messageから$valueに[](配列)を配置していく -->
+          <li><?php  echo $value; ?></li>  <!--$valueに入った$error_message[0]と[1]を順に表示(ループ) -->
           <?php endforeach; ?>
       </ul>
     <?php endif; ?>
@@ -104,17 +99,18 @@ if ($file_handle = fopen(FILENAME, 'r')) {
     </form>
   </section>
   <?php 
-    if (!empty($message_array)): ?> <!--$message_arrayが空じゃ無い時 -->
-    <?php foreach($message_array as $value): ?>   <!--$message_arrayから$valueに[]を配置していく -->
+   // if (!empty($message_array)): ?> <!--$message_arrayが空じゃ無い時 -->
+    <?php foreach($result as $column): ?>   <!--$message_arrayから$valueに[](配列)を配置していく -->
+    <?php //var_dump($column);?>
       <section id="comment">
     <div class="comment-in">
-      <h3><?php echo $value['title']; ?></h3> <!--$valueに入った['title']を表示 -->
-      <p><?php echo $value['text']; ?></p>  <!--$valueに入った['text']を表示 -->
-      <p><a href="comment.php?title=<?php echo $value['title']; ?> &text=<?php echo $value['text'];?> &num=<?php echo $value['num'];?>">記事全文・コメントを見る</a></p>
+      <h3><?php echo $column['title'] ?></h3> <!--$valueに入った['title']を表示 -->
+      <p><?php echo $column['text'] ?></p>  <!--$valueに入った['text']を表示 -->
+      <p><a href="comment.php?id=<?php echo $column['id']?>">記事全文・コメントを見る</a></p>
     </div>
   </section>
-    <?php endforeach; ?>
-    <?php endif ?>
+    <?php endforeach;?>
+    <?php //endif ?>
 </body>
 <footer>
   <ul>
@@ -134,7 +130,6 @@ if ($file_handle = fopen(FILENAME, 'r')) {
 </footer>
 
 
-
 <script>
 function MoveCheck() {
     if( confirm("投稿してよろしいですか？") ) {
@@ -145,6 +140,8 @@ function MoveCheck() {
         return false;
     }
 }
+
+
 
 </script>
 </html>
